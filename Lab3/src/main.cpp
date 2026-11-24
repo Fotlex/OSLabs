@@ -2,6 +2,7 @@
 #include "platform.hpp"
 #include "process.hpp"
 
+#include <cerrno>
 #include <algorithm>
 #include <atomic>
 #include <chrono>

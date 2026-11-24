@@ -120,6 +120,6 @@ inline std::string makeAbsolutePath(const std::string& path) {
 #endif
 }
 
-} namespace platform
+}
 
 #endif
