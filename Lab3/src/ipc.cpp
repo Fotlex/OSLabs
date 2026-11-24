@@ -4,7 +4,6 @@
 
 #ifndef _WIN32
     #include <cerrno>
-    #include <cstring>
     #include <fcntl.h>
     #include <sys/file.h>
     #include <sys/mman.h>
@@ -43,38 +42,20 @@ IpcContext::~IpcContext() {
     cleanup();
 }
 
-bool IpcContext::init(std::string& errorMsg) {
+bool IpcContext::init() {
     if (initialized_) {
         return true;
     }
 
 #ifdef _WIN32
     hCounterMutex_ = CreateMutexA(NULL, FALSE, "Local\\LabCounterMutex_v1");
-    if (!hCounterMutex_) {
-        errorMsg = "CreateMutexA (counter) failed";
-        cleanup();
-        return false;
-    }
-
     hLogMutex_ = CreateMutexA(NULL, FALSE, "Local\\LabLogMutex_v1");
-    if (!hLogMutex_) {
-        errorMsg = "CreateMutexA (log) failed";
-        cleanup();
-        return false;
-    }
-
     hLeaderMutex_ = CreateMutexA(NULL, FALSE, "Local\\LabLeaderMutex_v1");
-    if (!hLeaderMutex_) {
-        errorMsg = "CreateMutexA (leader) failed";
-        cleanup();
-        return false;
-    }
-
     hMapFile_ = CreateFileMappingA(
         INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
         0, sizeof(SharedState), "Local\\LabCounterShm_v1");
-    if (!hMapFile_) {
-        errorMsg = "CreateFileMappingA failed";
+
+    if (!hCounterMutex_ || !hLogMutex_ || !hLeaderMutex_ || !hMapFile_) {
         cleanup();
         return false;
     }
@@ -82,7 +63,6 @@ bool IpcContext::init(std::string& errorMsg) {
     shared_ = static_cast<SharedState*>(
         MapViewOfFile(hMapFile_, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedState)));
     if (!shared_) {
-        errorMsg = "MapViewOfFile failed";
         cleanup();
         return false;
     }
@@ -95,20 +75,17 @@ bool IpcContext::init(std::string& errorMsg) {
 
     if (counterLockFd_ < 0 || logLockFd_ < 0 || leaderLockFd_ < 0 ||
         activeLockFd_ < 0 || shmFd_ < 0) {
-        errorMsg = std::string("Failed to open IPC files: ") + std::strerror(errno);
         cleanup();
         return false;
     }
 
     if (ftruncate(shmFd_, sizeof(SharedState)) != 0) {
-        errorMsg = std::string("ftruncate failed: ") + std::strerror(errno);
         cleanup();
         return false;
     }
 
     void* ptr = mmap(NULL, sizeof(SharedState), PROT_READ | PROT_WRITE, MAP_SHARED, shmFd_, 0);
     if (ptr == MAP_FAILED) {
-        errorMsg = std::string("mmap failed: ") + std::strerror(errno);
         cleanup();
         return false;
     }
@@ -117,10 +94,8 @@ bool IpcContext::init(std::string& errorMsg) {
     lockCounter();
     if (flockRetry(activeLockFd_, LOCK_EX | LOCK_NB) == 0) {
         shared_->counter = 0;
-        flockRetry(activeLockFd_, LOCK_SH);
-    } else {
-        flockRetry(activeLockFd_, LOCK_SH);
     }
+    flockRetry(activeLockFd_, LOCK_SH);
     unlockCounter();
 #endif
 
@@ -132,31 +107,13 @@ void IpcContext::cleanup() {
     releaseLeader();
 
 #ifdef _WIN32
-    if (shared_) {
-        UnmapViewOfFile(shared_);
-        shared_ = nullptr;
-    }
-    if (hMapFile_) {
-        CloseHandle(hMapFile_);
-        hMapFile_ = NULL;
-    }
-    if (hLeaderMutex_) {
-        CloseHandle(hLeaderMutex_);
-        hLeaderMutex_ = NULL;
-    }
-    if (hLogMutex_) {
-        CloseHandle(hLogMutex_);
-        hLogMutex_ = NULL;
-    }
-    if (hCounterMutex_) {
-        CloseHandle(hCounterMutex_);
-        hCounterMutex_ = NULL;
-    }
+    if (shared_) { UnmapViewOfFile(shared_); shared_ = nullptr; }
+    if (hMapFile_) { CloseHandle(hMapFile_); hMapFile_ = NULL; }
+    if (hLeaderMutex_) { CloseHandle(hLeaderMutex_); hLeaderMutex_ = NULL; }
+    if (hLogMutex_) { CloseHandle(hLogMutex_); hLogMutex_ = NULL; }
+    if (hCounterMutex_) { CloseHandle(hCounterMutex_); hCounterMutex_ = NULL; }
 #else
-    if (shared_) {
-        munmap(shared_, sizeof(SharedState));
-        shared_ = nullptr;
-    }
+    if (shared_) { munmap(shared_, sizeof(SharedState)); shared_ = nullptr; }
     if (shmFd_ >= 0) { close(shmFd_); shmFd_ = -1; }
     if (activeLockFd_ >= 0) { flockRetry(activeLockFd_, LOCK_UN); close(activeLockFd_); activeLockFd_ = -1; }
     if (leaderLockFd_ >= 0) { close(leaderLockFd_); leaderLockFd_ = -1; }
@@ -253,7 +210,6 @@ void IpcContext::writeLogLine(const std::string& logPath, const std::string& lin
 }
 
 bool IpcContext::tryAcquireLeader() {
-    std::lock_guard<std::mutex> guard(localLeaderMutex_);
     if (leader_) {
         return true;
     }
@@ -274,7 +230,6 @@ bool IpcContext::tryAcquireLeader() {
 }
 
 void IpcContext::releaseLeader() {
-    std::lock_guard<std::mutex> guard(localLeaderMutex_);
     if (!leader_) {
         return;
     }

@@ -27,8 +27,7 @@ public:
     IpcContext(const IpcContext&) = delete;
     IpcContext& operator=(const IpcContext&) = delete;
 
-    bool init(std::string& errorMsg);
-    void cleanup();
+    bool init();
 
     std::int64_t getCounter();
     void setCounter(std::int64_t value);
@@ -40,9 +39,9 @@ public:
 
     bool tryAcquireLeader();
     void releaseLeader();
-    bool isLeader() const { return leader_; }
 
 private:
+    void cleanup();
     void lockCounter();
     void unlockCounter();
     void lockLog();
@@ -54,7 +53,6 @@ private:
 
     std::mutex localCounterMutex_;
     std::mutex localLogMutex_;
-    std::mutex localLeaderMutex_;
 
 #ifdef _WIN32
     HANDLE hCounterMutex_;

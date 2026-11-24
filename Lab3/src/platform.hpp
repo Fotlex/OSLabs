@@ -14,12 +14,8 @@
         #define WIN32_LEAN_AND_MEAN
     #endif
     #include <windows.h>
-    #include <direct.h>
-    #include <io.h>
-    #include <stdio.h>
 #else
     #include <limits.h>
-    #include <stdlib.h>
     #include <unistd.h>
     #ifdef __APPLE__
         #include <mach-o/dyld.h>
@@ -55,14 +51,6 @@ inline std::string currentTimestamp() {
     return std::string(buf);
 }
 
-inline bool isStdinTty() {
-#ifdef _WIN32
-    return _isatty(_fileno(stdin)) != 0;
-#else
-    return isatty(STDIN_FILENO) != 0;
-#endif
-}
-
 inline std::string getExecutablePath(const char* argv0) {
 #ifdef _WIN32
     char buf[MAX_PATH];
@@ -70,18 +58,12 @@ inline std::string getExecutablePath(const char* argv0) {
     if (len > 0 && len < MAX_PATH) {
         return std::string(buf, len);
     }
-    return argv0 ? std::string(argv0) : std::string();
 #elif defined(__APPLE__)
     char buf[PATH_MAX];
     uint32_t size = sizeof(buf);
     if (_NSGetExecutablePath(buf, &size) == 0) {
-        char resolved[PATH_MAX];
-        if (realpath(buf, resolved)) {
-            return std::string(resolved);
-        }
         return std::string(buf);
     }
-    return argv0 ? std::string(argv0) : std::string();
 #else
     char buf[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
@@ -89,35 +71,8 @@ inline std::string getExecutablePath(const char* argv0) {
         buf[len] = '\0';
         return std::string(buf);
     }
-    if (argv0) {
-        char resolved[PATH_MAX];
-        if (realpath(argv0, resolved)) {
-            return std::string(resolved);
-        }
-        return std::string(argv0);
-    }
-    return std::string();
 #endif
-}
-
-inline std::string makeAbsolutePath(const std::string& path) {
-#ifdef _WIN32
-    char buf[MAX_PATH];
-    DWORD len = GetFullPathNameA(path.c_str(), MAX_PATH, buf, NULL);
-    if (len > 0 && len < MAX_PATH) {
-        return std::string(buf, len);
-    }
-    return path;
-#else
-    if (!path.empty() && path[0] == '/') {
-        return path;
-    }
-    char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd))) {
-        return std::string(cwd) + "/" + path;
-    }
-    return path;
-#endif
+    return argv0 ? std::string(argv0) : std::string();
 }
 
 }

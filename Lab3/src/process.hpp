@@ -2,7 +2,6 @@
 #define PROCESS_HPP
 
 #include <string>
-#include <vector>
 
 #ifdef _WIN32
     #ifndef NOMINMAX
@@ -24,9 +23,8 @@ public:
     ChildProcess(const ChildProcess&) = delete;
     ChildProcess& operator=(const ChildProcess&) = delete;
 
-    bool spawn(const std::string& exePath, const std::vector<std::string>& args);
+    bool spawn(const std::string& exePath, const std::string& arg);
     bool isRunning();
-    void detach();
 
 private:
     bool active_;

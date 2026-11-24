@@ -1,41 +1,13 @@
 #include "process.hpp"
 
+#include <vector>
+
 #ifndef _WIN32
     #include <cerrno>
     #include <fcntl.h>
     #include <sys/wait.h>
     #include <unistd.h>
 #endif
-
-namespace {
-#ifdef _WIN32
-std::string quoteWindowsArg(const std::string& arg) {
-    if (!arg.empty() && arg.find_first_of(" \t\n\v\"") == std::string::npos) {
-        return arg;
-    }
-    std::string out = "\"";
-    for (std::size_t i = 0; i < arg.size(); ++i) {
-        std::size_t backslashes = 0;
-        while (i < arg.size() && arg[i] == '\\') {
-            ++backslashes;
-            ++i;
-        }
-        if (i == arg.size()) {
-            out.append(backslashes * 2, '\\');
-            break;
-        } else if (arg[i] == '"') {
-            out.append(backslashes * 2 + 1, '\\');
-            out.push_back('"');
-        } else {
-            out.append(backslashes, '\\');
-            out.push_back(arg[i]);
-        }
-    }
-    out.push_back('"');
-    return out;
-}
-#endif
-}
 
 ChildProcess::ChildProcess()
     : active_(false)
@@ -47,19 +19,22 @@ ChildProcess::ChildProcess()
 {}
 
 ChildProcess::~ChildProcess() {
-    detach();
+#ifdef _WIN32
+    if (hProcess_) {
+        CloseHandle(hProcess_);
+    }
+#endif
 }
 
-bool ChildProcess::spawn(const std::string& exePath, const std::vector<std::string>& args) {
+bool ChildProcess::spawn(const std::string& exePath, const std::string& arg) {
     if (isRunning()) {
         return false;
     }
 
 #ifdef _WIN32
-    std::string cmdLine = quoteWindowsArg(exePath);
-    for (const auto& a : args) {
-        cmdLine += " " + quoteWindowsArg(a);
-    }
+    std::string cmdLine = "\"" + exePath + "\" " + arg;
+    std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back('\0');
 
     STARTUPINFOA si;
     ZeroMemory(&si, sizeof(si));
@@ -68,20 +43,9 @@ bool ChildProcess::spawn(const std::string& exePath, const std::vector<std::stri
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
 
-    std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
-    mutableCmd.push_back('\0');
-
     BOOL ok = CreateProcessA(
-        NULL,
-        mutableCmd.data(),
-        NULL,
-        NULL,
-        FALSE,
-        DETACHED_PROCESS,
-        NULL,
-        NULL,
-        &si,
-        &pi);
+        NULL, mutableCmd.data(), NULL, NULL, FALSE,
+        DETACHED_PROCESS, NULL, NULL, &si, &pi);
 
     if (!ok) {
         return false;
@@ -103,15 +67,12 @@ bool ChildProcess::spawn(const std::string& exePath, const std::vector<std::stri
             close(devnull);
         }
 
-        std::vector<char*> argv;
-        argv.reserve(args.size() + 2);
-        argv.push_back(const_cast<char*>(exePath.c_str()));
-        for (const auto& a : args) {
-            argv.push_back(const_cast<char*>(a.c_str()));
-        }
-        argv.push_back(nullptr);
-
-        execv(exePath.c_str(), argv.data());
+        char* argv[] = {
+            const_cast<char*>(exePath.c_str()),
+            const_cast<char*>(arg.c_str()),
+            nullptr
+        };
+        execv(exePath.c_str(), argv);
         _exit(127);
     }
 
@@ -127,8 +88,7 @@ bool ChildProcess::isRunning() {
     }
 
 #ifdef _WIN32
-    DWORD res = WaitForSingleObject(hProcess_, 0);
-    if (res == WAIT_TIMEOUT) {
+    if (WaitForSingleObject(hProcess_, 0) == WAIT_TIMEOUT) {
         return true;
     }
     CloseHandle(hProcess_);
@@ -149,19 +109,4 @@ bool ChildProcess::isRunning() {
     active_ = false;
     return false;
 #endif
-}
-
-void ChildProcess::detach() {
-    if (!active_) {
-        return;
-    }
-#ifdef _WIN32
-    if (hProcess_) {
-        CloseHandle(hProcess_);
-        hProcess_ = NULL;
-    }
-#else
-    pid_ = -1;
-#endif
-    active_ = false;
 }
